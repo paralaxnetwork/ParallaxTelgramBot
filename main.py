@@ -12,9 +12,13 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # --- USER CONFIGURATION ---
 TOKEN = '8679862520:AAHVb7-IP7LVQJSEy8LyfYeUlo9Qwr8Dx8k'
-LOG_FILE = "parallax_submissions.csv"
-MANUAL_REVIEW_FILE = "manual_review.csv" 
-PENDING_REVIEWS_FILE = "pending_reviews.json" 
+
+# --- ARMAZENAMENTO PERSISTENTE (RAILWAY OU LOCAL) ---
+DATA_DIR = os.getenv("DATA_DIR", ".") 
+
+LOG_FILE = os.path.join(DATA_DIR, "parallax_submissions.csv")
+MANUAL_REVIEW_FILE = os.path.join(DATA_DIR, "manual_review.csv") 
+PENDING_REVIEWS_FILE = os.path.join(DATA_DIR, "pending_reviews.json") 
 
 ADMIN_CHAT_ID = 5830563280  # Seu ID do Painel Admin
 
