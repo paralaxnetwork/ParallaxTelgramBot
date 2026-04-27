@@ -27,7 +27,6 @@ TARGET_CHAT_ID = -1003720126614
 TARGET_THREAD_ID = 171
 
 # --- GOOGLE SHEETS CONFIGURATION ---
-GOOGLE_SHEETS_JSON = "chave-sheets.json" 
 SPREADSHEET_NAME = "Ambassador_Rewards"
 
 bot = telebot.TeleBot(TOKEN)
@@ -177,9 +176,22 @@ def is_profile_link(url):
 
 def update_sheets_points(username, score):
     try:
-        scope =["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_JSON, scope)
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        
+        # 1. Puxa o texto gigante do JSON lá da variável secreta do Railway
+        google_creds_str = os.getenv("GOOGLE_SHEETS_JSON_CONTENT")
+        
+        if not google_creds_str:
+            print("ERRO: Variável GOOGLE_SHEETS_JSON_CONTENT não encontrada!")
+            return False, "⚠️ Error: Internal credentials missing."
+
+        # 2. Converte o texto de volta para o formato JSON (Dicionário do Python)
+        creds_dict = json.loads(google_creds_str)
+        
+        # 3. Usa a função 'from_json_keyfile_dict' no lugar da antiga 'from_json_keyfile_name'
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
+        
         sheet = client.open(SPREADSHEET_NAME).worksheet("April")
         
         formatted_username = f"@{username}" if not username.startswith("@") else username
