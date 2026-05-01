@@ -12,34 +12,31 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 # --- USER CONFIGURATION ---
 TOKEN = '8679862520:AAHVb7-IP7LVQJSEy8LyfYeUlo9Qwr8Dx8k'
+LOG_FILE = "parallax_submissions.csv"
+MANUAL_REVIEW_FILE = "manual_review.csv" 
+PENDING_REVIEWS_FILE = "pending_reviews.json" 
 
-# --- ARMAZENAMENTO PERSISTENTE (RAILWAY OU LOCAL) ---
-DATA_DIR = os.getenv("DATA_DIR", ".") 
+ADMIN_CHAT_ID = 5830563280  # Your Admin Panel ID
 
-LOG_FILE = os.path.join(DATA_DIR, "parallax_submissions.csv")
-MANUAL_REVIEW_FILE = os.path.join(DATA_DIR, "manual_review.csv") 
-PENDING_REVIEWS_FILE = os.path.join(DATA_DIR, "pending_reviews.json") 
-
-ADMIN_CHAT_ID = 5830563280  # Seu ID do Painel Admin
-
-# 🚨 CHAT ALVO CONFIGURADO PELO LINK: t.me/c/3720126614/171
+# 🚨 TARGET CHAT CONFIGURED BY LINK: t.me/c/3720126614/171
 TARGET_CHAT_ID = -1003720126614 
 TARGET_THREAD_ID = 171
 
 # --- GOOGLE SHEETS CONFIGURATION ---
+GOOGLE_SHEETS_JSON = "chave-sheets.json" 
 SPREADSHEET_NAME = "Ambassador_Rewards"
 
 bot = telebot.TeleBot(TOKEN)
 processing_lock = threading.Lock() 
 
-# --- SISTEMA DE MEMÓRIA PERSISTENTE PARA REVISÃO MANUAL ---
+# --- PERSISTENT MEMORY SYSTEM FOR MANUAL REVIEW ---
 def load_reviews():
     if os.path.exists(PENDING_REVIEWS_FILE):
         try:
             with open(PENDING_REVIEWS_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Erro ao carregar revisões pendentes: {e}")
+            print(f"Error loading pending reviews: {e}")
     return {}
 
 def save_reviews():
@@ -47,21 +44,21 @@ def save_reviews():
         with open(PENDING_REVIEWS_FILE, 'w', encoding='utf-8') as f:
             json.dump(review_sessions, f, indent=4)
     except Exception as e:
-        print(f"Erro ao salvar revisões: {e}")
+        print(f"Error saving reviews: {e}")
 
 review_sessions = load_reviews()
 
 # --- SECURITY & LIMIT CONTROL FUNCTIONS ---
 
 def escape_html(text):
-    """Escapa caracteres HTML para evitar erro 400 no Telegram no parse_mode='HTML'."""
+    """Escapes HTML characters to avoid Telegram error 400 with parse_mode='HTML'."""
     if not text: return ""
     return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 def send_to_target_chat(username, text):
-    """Envia a resposta do bot diretamente para o Tópico de Destino, marcando o usuário."""
+    """Sends the bot's response directly to the Target Thread, mentioning the user."""
     safe_user = escape_html(username)
-    # Trocado de ** ** para <b> </b> (HTML)
+    # Changed from ** ** to <b> </b> (HTML)
     formatted_text = f"👤 <b>Submission from:</b> @{safe_user}\n\n{text}"
     
     max_retries = 3
@@ -70,7 +67,7 @@ def send_to_target_chat(username, text):
             bot.send_message(
                 TARGET_CHAT_ID, 
                 formatted_text, 
-                parse_mode="HTML",  # <- ALTERADO PARA HTML AQUI
+                parse_mode="HTML",  # <- CHANGED TO HTML HERE
                 message_thread_id=TARGET_THREAD_ID,
                 disable_web_page_preview=True
             )
@@ -80,10 +77,10 @@ def send_to_target_chat(username, text):
                 wait_time = int(re.search(r'after (\d+)', str(e)).group(1)) + 1
                 time.sleep(wait_time)
             else:
-                print(f"Erro Telegram na msg alvo: {e}")
+                print(f"Telegram error in target msg: {e}")
                 break
         except Exception as e:
-            print(f"Erro crítico no alvo: {e}")
+            print(f"Critical error in target: {e}")
             break
 
 def safe_answer_callback(call_id, text=None, show_alert=False):
@@ -96,7 +93,7 @@ def safe_answer_callback(call_id, text=None, show_alert=False):
         pass
 
 def cleanup_old_logs():
-    """Remove links do banco de dados local que tenham mais de 7 dias."""
+    """Removes local database links older than 7 days."""
     if not os.path.exists(LOG_FILE): return
     try:
         valid_rows =[]
@@ -107,22 +104,22 @@ def cleanup_old_logs():
                 if len(row) < 3: continue
                 try:
                     log_datetime = datetime.strptime(row[0].split('.')[0], '%Y-%m-%d %H:%M:%S')
-                    # Só mantém no CSV se a diferença for de 7 dias ou menos
+                    # Only keeps in CSV if the difference is 7 days or less
                     if (now - log_datetime).days <= 7:
                         valid_rows.append(row)
                 except ValueError:
                     pass
         
-        # Reescreve o arquivo limpo
+        # Rewrites the clean file
         with open(LOG_FILE, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerows(valid_rows)
     except Exception as e:
-        print(f"Erro na limpeza de logs de 7 dias: {e}")
+        print(f"Error cleaning 7-day logs: {e}")
 
 def validate_submission_rules(username, url):
     with processing_lock:
-        cleanup_old_logs() # Limpa links com mais de 7 dias antes de verificar
+        cleanup_old_logs() # Cleans links older than 7 days before verifying
         
         if not os.path.exists(LOG_FILE): return True, ""
         
@@ -176,22 +173,9 @@ def is_profile_link(url):
 
 def update_sheets_points(username, score):
     try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        
-        # 1. Puxa o texto gigante do JSON lá da variável secreta do Railway
-        google_creds_str = os.getenv("GOOGLE_SHEETS_JSON_CONTENT")
-        
-        if not google_creds_str:
-            print("ERRO: Variável GOOGLE_SHEETS_JSON_CONTENT não encontrada!")
-            return False, "⚠️ Error: Internal credentials missing."
-
-        # 2. Converte o texto de volta para o formato JSON (Dicionário do Python)
-        creds_dict = json.loads(google_creds_str)
-        
-        # 3. Usa a função 'from_json_keyfile_dict' no lugar da antiga 'from_json_keyfile_name'
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        scope =["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_JSON, scope)
         client = gspread.authorize(creds)
-        
         sheet = client.open(SPREADSHEET_NAME).worksheet("April")
         
         formatted_username = f"@{username}" if not username.startswith("@") else username
@@ -220,7 +204,7 @@ def update_sheets_points(username, score):
 # --- MANUAL REVIEW ROUTER ---
 
 def route_to_manual_review(username, url):
-    """Encaminha TODO E QUALQUER LINK para a revisão manual estruturada."""
+    """Forwards ANY AND ALL LINKS to structured manual review."""
     try:
         with processing_lock:
             with open(MANUAL_REVIEW_FILE, 'a', newline='', encoding='utf-8') as f:
@@ -229,7 +213,7 @@ def route_to_manual_review(username, url):
             with open(LOG_FILE, 'a', newline='', encoding='utf-8') as f:
                 csv.writer(f).writerow([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), username, url, "PENDING_MANUAL"])
     except PermissionError:
-        send_to_target_chat(username, "⚠️ O sistema está atualizando no momento (Arquivo bloqueado). Tente enviar novamente em instantes!")
+        send_to_target_chat(username, "⚠️ The system is currently updating (File locked). Please try submitting again in a few moments!")
         return
         
     send_to_target_chat(username, "✅ <b>Link submitted for manual review!</b> You will be notified here when the evaluation is complete.")
@@ -237,10 +221,10 @@ def route_to_manual_review(username, url):
     safe_user = escape_html(username)
     safe_url = escape_html(url)
     
-    # Texto formatado com HTML para não dar erro
-    texto_admin = f"🚨 <b>Revisão Manual Necessária</b> 🚨\n👤 Usuário: @{safe_user}\n🔗 <a href=\"{safe_url}\">Acessar Link</a>"
+    # HTML-formatted text to avoid errors
+    admin_text = f"🚨 <b>Manual Review Required</b> 🚨\n👤 User: @{safe_user}\n🔗 <a href=\"{safe_url}\">Access Link</a>"
     try:
-        msg = bot.send_message(ADMIN_CHAT_ID, texto_admin, parse_mode="HTML", disable_web_page_preview=True)
+        msg = bot.send_message(ADMIN_CHAT_ID, admin_text, parse_mode="HTML", disable_web_page_preview=True)
         msg_id_str = str(msg.message_id) 
         
         review_sessions[msg_id_str] = {
@@ -256,25 +240,25 @@ def route_to_manual_review(username, url):
         save_reviews() 
         bot.edit_message_reply_markup(ADMIN_CHAT_ID, msg.message_id, reply_markup=build_review_keyboard(msg_id_str))
     except Exception as e:
-        print(f"Erro ao enviar painel admin: {e}")
+        print(f"Error sending admin panel: {e}")
 
-# --- INTERFACE DO PAINEL ADMIN ---
+# --- ADMIN PANEL INTERFACE ---
 
 def build_review_keyboard(msg_id_str):
     state = review_sessions.get(msg_id_str, None)
     if not state: return None
     
     markup = InlineKeyboardMarkup()
-    btn_valid = InlineKeyboardButton(f"{'✅' if state['pts_valid'] else '⬜️'} Link Válido (+1)", callback_data=f"rev_valid_{msg_id_str}")
-    btn_hash = InlineKeyboardButton(f"{'✅' if state['pts_hash'] else '⬜️'} Hashtag (+3)", callback_data=f"rev_hash_{msg_id_str}")
-    btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} Palavra PAX (+2)", callback_data=f"rev_key_{msg_id_str}")
-    btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Código (+2)", callback_data=f"rev_code_{msg_id_str}")
+    btn_valid = InlineKeyboardButton(f"{'✅' if state['pts_valid'] else '⬜️'} Valid Link (+1)", callback_data=f"rev_valid_{msg_id_str}")
+    btn_hash = InlineKeyboardButton(f"{'✅' if state['pts_hash'] else '⬜️'} Hashtag (+1)", callback_data=f"rev_hash_{msg_id_str}")
+    btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} PAX Word (+2)", callback_data=f"rev_key_{msg_id_str}")
+    btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Code (+3)", callback_data=f"rev_code_{msg_id_str}")
     
-    btn_text = InlineKeyboardButton(f"{'✍️' if state['pts_text'] else '⬜️'} Qualid Text (+1)", callback_data=f"rev_text_{msg_id_str}")
-    btn_image = InlineKeyboardButton(f"{'🖼' if state['pts_image'] else '⬜️'} Qualid Imagem (+1)", callback_data=f"rev_image_{msg_id_str}")
+    btn_text = InlineKeyboardButton(f"{'✍️' if state['pts_text'] else '⬜️'} Text Quality (+2)", callback_data=f"rev_text_{msg_id_str}")
+    btn_image = InlineKeyboardButton(f"{'🖼' if state['pts_image'] else '⬜️'} Image Quality (+3)", callback_data=f"rev_image_{msg_id_str}")
 
-    btn_confirm = InlineKeyboardButton("🚀 CONFIRMAR E SOMAR", callback_data=f"rev_confirm_{msg_id_str}")
-    btn_reject = InlineKeyboardButton("❌ REJEITAR (0 pts)", callback_data=f"rev_reject_{msg_id_str}")
+    btn_confirm = InlineKeyboardButton("🚀 CONFIRM AND ADD", callback_data=f"rev_confirm_{msg_id_str}")
+    btn_reject = InlineKeyboardButton("❌ REJECT (0 pts)", callback_data=f"rev_reject_{msg_id_str}")
 
     markup.row(btn_valid, btn_hash)
     markup.row(btn_key, btn_code)
@@ -289,7 +273,7 @@ def handle_review_buttons(call):
     msg_id_str = call.data.split('_')[2] 
     
     if msg_id_str not in review_sessions:
-        safe_answer_callback(call.id, "Sessão expirada ou já avaliada.")
+        safe_answer_callback(call.id, "Session expired or already evaluated.")
         return
 
     state = review_sessions[msg_id_str]
@@ -307,14 +291,14 @@ def handle_review_buttons(call):
     elif action == 'confirm':
         score = 0
         if state['pts_valid']: score += 1
-        if state['pts_hash']: score += 3
+        if state['pts_hash']: score += 1
         if state['pts_key']: score += 2
-        if state['pts_code']: score += 2
-        if state['pts_text']: score += 1
-        if state['pts_image']: score += 1
+        if state['pts_code']: score += 3
+        if state['pts_text']: score += 2
+        if state['pts_image']: score += 3
 
         if score == 0:
-            safe_answer_callback(call.id, "Atenção: A pontuação está zerada. Use o botão REJEITAR se for o caso.", show_alert=True)
+            safe_answer_callback(call.id, "Attention: The score is zero. Use the REJECT button if applicable.", show_alert=True)
             return
 
         try:
@@ -322,14 +306,14 @@ def handle_review_buttons(call):
                 with open(LOG_FILE, 'a', newline='', encoding='utf-8') as f:
                     csv.writer(f).writerow([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), state['user'], state['url'], score])
         except PermissionError:
-            safe_answer_callback(call.id, "Erro: Feche o CSV no Excel antes de confirmar!", show_alert=True)
+            safe_answer_callback(call.id, "Error: Close the CSV in Excel before confirming!", show_alert=True)
             return
             
         sheets_success, sheets_message = update_sheets_points(state['user'], score)
         
         try:
             bot.edit_message_text(
-                f"✅ <b>AVALIADO!</b>\n👤 @{safe_user} recebeu <b>{score} pontos</b>.\n🔗 <a href=\"{safe_url}\">Acessar Link</a>", 
+                f"✅ <b>EVALUATED!</b>\n👤 @{safe_user} received <b>{score} points</b>.\n🔗 <a href=\"{safe_url}\">Access Link</a>", 
                 chat_id=call.message.chat.id, 
                 message_id=int(msg_id_str),
                 parse_mode="HTML",
@@ -339,13 +323,13 @@ def handle_review_buttons(call):
             
         user_msg = "📊 <b>Validation Report (Manual)</b>\n\n"
         if state['pts_valid']: user_msg += "• Valid link (+1)\n"
-        if state['pts_hash']: user_msg += "• Hashtag #parallaxnetwork detected (+3)\n"
+        if state['pts_hash']: user_msg += "• Hashtag #parallaxnetwork detected (+1)\n"
         if state['pts_key']: user_msg += "• Keywords 'PAX/Parallax' detected (+2)\n"
-        if state['pts_code']: user_msg += "• Invite code detected (+2)\n"
-        if state['pts_text']: user_msg += "• High text quality (+1)\n"
-        if state['pts_image']: user_msg += "• High image/video quality (+1)\n"
+        if state['pts_code']: user_msg += "• Invite code detected (+3)\n"
+        if state['pts_text']: user_msg += "• High text quality (+2)\n"
+        if state['pts_image']: user_msg += "• High image/video quality (+3)\n"
         
-        user_msg += f"\n🏆 <b>Final Score: {score} points</b>\n{sheets_message}\n🔗 <a href=\"{safe_url}\">Acessar Postagem</a>"
+        user_msg += f"\n🏆 <b>Final Score: {score} points</b>\n{sheets_message}\n🔗 <a href=\"{safe_url}\">Access Post</a>"
         
         # Envia a notificação final de volta para o chat, marcando o usuário
         send_to_target_chat(state['user'], user_msg)
@@ -357,7 +341,7 @@ def handle_review_buttons(call):
     elif action == 'reject':
         try:
             bot.edit_message_text(
-                f"❌ <b>REJEITADO!</b>\n👤 @{safe_user} (0 pontos).\n🔗 <a href=\"{safe_url}\">Acessar Link</a>", 
+                f"❌ <b>REJECTED!</b>\n👤 @{safe_user} (0 points).\n🔗 <a href=\"{safe_url}\">Access Link</a>", 
                 chat_id=call.message.chat.id, 
                 message_id=int(msg_id_str),
                 parse_mode="HTML",
@@ -365,7 +349,7 @@ def handle_review_buttons(call):
             )
         except Exception: pass
             
-        reject_msg = f"❌ <b>Validation failed.</b>\nYour link was rejected by the moderation team (0 points).\n🔗 <a href=\"{safe_url}\">Acessar Postagem</a>"
+        reject_msg = f"❌ <b>Validation failed.</b>\nYour link was rejected by the moderation team (0 points).\n🔗 <a href=\"{safe_url}\">Access Post</a>"
         send_to_target_chat(state['user'], reject_msg)
 
         del review_sessions[msg_id_str]
@@ -410,7 +394,7 @@ def handle_submission(message):
     try:
         allowed, reason = validate_submission_rules(username, url)
     except PermissionError:
-        send_to_target_chat(username, "⚠️ O banco de dados está aberto no computador do Admin. Por favor, tente novamente em 1 minuto.")
+        send_to_target_chat(username, "⚠️ The database is open on the Admin's computer. Please try again in 1 minute.")
         return
 
     if not allowed:
@@ -423,13 +407,13 @@ def handle_submission(message):
 if __name__ == "__main__":
     if not os.path.exists(MANUAL_REVIEW_FILE):
         with open(MANUAL_REVIEW_FILE, 'w', newline='', encoding='utf-8') as f:
-            csv.writer(f).writerow(['Username', 'Link', 'Data_Submissao'])
+            csv.writer(f).writerow(['Username', 'Link', 'Submission_Date'])
             
-    print(f"🚀 Parallax Auditor System Online (100% Revisão Manual Ativada, Parse HTML Seguro)...")
+    print(f"🚀 Parallax Auditor System Online (100% Manual Review Enabled, Secure HTML Parse)...")
     
     while True:
         try:
             bot.polling(none_stop=True, timeout=60, long_polling_timeout=60)
         except Exception as e:
-            print(f"Erro no Polling: {e}. Reiniciando em 5 segundos...")
+            print(f"Polling Error: {e}. Restarting in 5 seconds...")
             time.sleep(5)
