@@ -175,7 +175,7 @@ def update_sheets_points(username, score):
         scope =["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_JSON, scope)
         client = gspread.authorize(creds)
-        sheet = client.open(SPREADSHEET_NAME).worksheet("April")
+        sheet = client.open(SPREADSHEET_NAME).worksheet("May")
         
         formatted_username = f"@{username}" if not username.startswith("@") else username
         col_c_values = sheet.col_values(3)
