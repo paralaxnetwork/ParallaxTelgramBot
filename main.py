@@ -58,7 +58,6 @@ def escape_html(text):
 def send_to_target_chat(username, text):
     """Sends the bot's response directly to the Target Thread, mentioning the user."""
     safe_user = escape_html(username)
-    # Changed from ** ** to <b> </b> (HTML)
     formatted_text = f"👤 <b>Submission from:</b> @{safe_user}\n\n{text}"
     
     max_retries = 3
@@ -67,7 +66,7 @@ def send_to_target_chat(username, text):
             bot.send_message(
                 TARGET_CHAT_ID, 
                 formatted_text, 
-                parse_mode="HTML",  # <- CHANGED TO HTML HERE
+                parse_mode="HTML", 
                 message_thread_id=TARGET_THREAD_ID,
                 disable_web_page_preview=True
             )
@@ -251,8 +250,8 @@ def build_review_keyboard(msg_id_str):
     markup = InlineKeyboardMarkup()
     btn_valid = InlineKeyboardButton(f"{'✅' if state['pts_valid'] else '⬜️'} Valid Link (+1)", callback_data=f"rev_valid_{msg_id_str}")
     btn_hash = InlineKeyboardButton(f"{'✅' if state['pts_hash'] else '⬜️'} Hashtag (+1)", callback_data=f"rev_hash_{msg_id_str}")
-    btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} PAX Word (+2)", callback_data=f"rev_key_{msg_id_str}")
-    btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Code (+3)", callback_data=f"rev_code_{msg_id_str}")
+    btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} PAX Word (+1)", callback_data=f"rev_key_{msg_id_str}")
+    btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Code (+2)", callback_data=f"rev_code_{msg_id_str}")
     
     btn_text = InlineKeyboardButton(f"{'✍️' if state['pts_text'] else '⬜️'} Text Quality (+2)", callback_data=f"rev_text_{msg_id_str}")
     btn_image = InlineKeyboardButton(f"{'🖼' if state['pts_image'] else '⬜️'} Image Quality (+3)", callback_data=f"rev_image_{msg_id_str}")
@@ -280,7 +279,7 @@ def handle_review_buttons(call):
     safe_user = escape_html(state['user'])
     safe_url = escape_html(state['url'])
 
-    if action in['valid', 'hash', 'key', 'code', 'text', 'image']:
+    if action in ['valid', 'hash', 'key', 'code', 'text', 'image']:
         state[f'pts_{action}'] = not state[f'pts_{action}']
         save_reviews()
         try:
@@ -292,8 +291,8 @@ def handle_review_buttons(call):
         score = 0
         if state['pts_valid']: score += 1
         if state['pts_hash']: score += 1
-        if state['pts_key']: score += 2
-        if state['pts_code']: score += 3
+        if state['pts_key']: score += 1
+        if state['pts_code']: score += 2
         if state['pts_text']: score += 2
         if state['pts_image']: score += 3
 
@@ -324,8 +323,8 @@ def handle_review_buttons(call):
         user_msg = "📊 <b>Validation Report (Manual)</b>\n\n"
         if state['pts_valid']: user_msg += "• Valid link (+1)\n"
         if state['pts_hash']: user_msg += "• Hashtag #parallaxnetwork detected (+1)\n"
-        if state['pts_key']: user_msg += "• Keywords 'PAX/Parallax' detected (+2)\n"
-        if state['pts_code']: user_msg += "• Invite code detected (+3)\n"
+        if state['pts_key']: user_msg += "• Keywords 'PAX/Parallax' detected (+1)\n"
+        if state['pts_code']: user_msg += "• Invite code detected (+2)\n"
         if state['pts_text']: user_msg += "• High text quality (+2)\n"
         if state['pts_image']: user_msg += "• High image/video quality (+3)\n"
         
