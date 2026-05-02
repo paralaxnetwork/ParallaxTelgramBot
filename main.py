@@ -95,7 +95,7 @@ def cleanup_old_logs():
     """Removes local database links older than 7 days."""
     if not os.path.exists(LOG_FILE): return
     try:
-        valid_rows =[]
+        valid_rows = []
         now = datetime.now()
         with open(LOG_FILE, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
@@ -103,13 +103,11 @@ def cleanup_old_logs():
                 if len(row) < 3: continue
                 try:
                     log_datetime = datetime.strptime(row[0].split('.')[0], '%Y-%m-%d %H:%M:%S')
-                    # Only keeps in CSV if the difference is 7 days or less
                     if (now - log_datetime).days <= 7:
                         valid_rows.append(row)
                 except ValueError:
                     pass
         
-        # Rewrites the clean file
         with open(LOG_FILE, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
             writer.writerows(valid_rows)
@@ -118,7 +116,7 @@ def cleanup_old_logs():
 
 def validate_submission_rules(username, url):
     with processing_lock:
-        cleanup_old_logs() # Cleans links older than 7 days before verifying
+        cleanup_old_logs()
         
         if not os.path.exists(LOG_FILE): return True, ""
         
@@ -161,8 +159,8 @@ def validate_submission_rules(username, url):
         return True, ""
 
 def is_profile_link(url):
-    patterns =[r'/status/', r'/p/', r'/reels?/', r'/watch', r'/shorts/', r'/posts/', r'/video/', r'share/v/', r'share/r/', r'youtu\.be/', r'/live/', r'/comments/']
-    strict_domains =['twitter.com', 'x.com', 'youtube.com', 'instagram.com', 'facebook.com']
+    patterns = [r'/status/', r'/p/', r'/reels?/', r'/watch', r'/shorts/', r'/posts/', r'/video/', r'share/v/', r'share/r/', r'youtu\.be/', r'/live/', r'/comments/']
+    strict_domains = ['twitter.com', 'x.com', 'youtube.com', 'instagram.com', 'facebook.com']
     if any(domain in url for domain in strict_domains):
         if any(re.search(p, url) for p in patterns): return False 
         return True 
@@ -170,31 +168,48 @@ def is_profile_link(url):
 
 # --- GOOGLE SHEETS FUNCTION ---
 
+def get_google_creds(scope):
+    """
+    Gets Google Sheets credentials.
+    On Railway: uses the GOOGLE_SHEETS_JSON_CONTENT environment variable.
+    Locally: uses the chave-sheets.json file.
+    """
+    json_content = os.environ.get("GOOGLE_SHEETS_JSON_CONTENT")
+    if json_content:
+        print("✅ Using Google credentials from environment variable (Railway).")
+        creds_dict = json.loads(json_content)
+        return ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    else:
+        print("✅ Using Google credentials from local file.")
+        return ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_JSON, scope)
+
 def update_sheets_points(username, score):
     try:
-        scope =["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_JSON, scope)
+        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        creds = get_google_creds(scope)
         client = gspread.authorize(creds)
         sheet = client.open(SPREADSHEET_NAME).worksheet("May")
         
-        formatted_username = f"@{username}" if not username.startswith("@") else username
+        # Normalizes username by removing @, spaces and lowercasing for comparison
+        clean_username = username.strip().lstrip("@").lower()
         col_c_values = sheet.col_values(3)
         row_index = None
         
         for i, val in enumerate(col_c_values):
-            if val.strip().lower() == formatted_username.lower():
-                row_index = i + 1 
+            clean_val = val.strip().lstrip("@").lower()
+            if clean_val == clean_username:
+                row_index = i + 1
                 break
         
         if row_index:
-            coluna_pontos = 6 
+            coluna_pontos = 6
             current_points_str = sheet.cell(row_index, coluna_pontos).value
             current_points = int(current_points_str) if current_points_str else 0
             new_total = current_points + score
             sheet.update_cell(row_index, coluna_pontos, new_total)
             return True, "✅ Points updated in the Leaderboard."
         else:
-            return False, "⚠️ Score logged locally, but username was not found in the Official Leaderboard."
+            return False, f"⚠️ Username @{username} was not found in the Official Leaderboard."
             
     except Exception as e:
         print(f"Google Sheets Error: {e}")
@@ -220,7 +235,6 @@ def route_to_manual_review(username, url):
     safe_user = escape_html(username)
     safe_url = escape_html(url)
     
-    # HTML-formatted text to avoid errors
     admin_text = f"🚨 <b>Manual Review Required</b> 🚨\n👤 User: @{safe_user}\n🔗 <a href=\"{safe_url}\">Access Link</a>"
     try:
         msg = bot.send_message(ADMIN_CHAT_ID, admin_text, parse_mode="HTML", disable_web_page_preview=True)
@@ -252,10 +266,8 @@ def build_review_keyboard(msg_id_str):
     btn_hash = InlineKeyboardButton(f"{'✅' if state['pts_hash'] else '⬜️'} Hashtag (+1)", callback_data=f"rev_hash_{msg_id_str}")
     btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} PAX Word (+1)", callback_data=f"rev_key_{msg_id_str}")
     btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Code (+2)", callback_data=f"rev_code_{msg_id_str}")
-    
     btn_text = InlineKeyboardButton(f"{'✍️' if state['pts_text'] else '⬜️'} Text Quality (+2)", callback_data=f"rev_text_{msg_id_str}")
     btn_image = InlineKeyboardButton(f"{'🖼' if state['pts_image'] else '⬜️'} Image Quality (+3)", callback_data=f"rev_image_{msg_id_str}")
-
     btn_confirm = InlineKeyboardButton("🚀 CONFIRM AND ADD", callback_data=f"rev_confirm_{msg_id_str}")
     btn_reject = InlineKeyboardButton("❌ REJECT (0 pts)", callback_data=f"rev_reject_{msg_id_str}")
 
@@ -327,10 +339,8 @@ def handle_review_buttons(call):
         if state['pts_code']: user_msg += "• Invite code detected (+2)\n"
         if state['pts_text']: user_msg += "• High text quality (+2)\n"
         if state['pts_image']: user_msg += "• High image/video quality (+3)\n"
-        
         user_msg += f"\n🏆 <b>Final Score: {score} points</b>\n{sheets_message}\n🔗 <a href=\"{safe_url}\">Access Post</a>"
         
-        # Envia a notificação final de volta para o chat, marcando o usuário
         send_to_target_chat(state['user'], user_msg)
 
         del review_sessions[msg_id_str]
@@ -400,7 +410,6 @@ def handle_submission(message):
         send_to_target_chat(username, f"❌ {reason}")
         return
 
-    # Redireciona TODOS os links válidos para o Painel Manual
     route_to_manual_review(username, url)
 
 if __name__ == "__main__":
