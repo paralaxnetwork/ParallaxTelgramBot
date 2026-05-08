@@ -29,6 +29,9 @@ SPREADSHEET_NAME = "Ambassador_Rewards"
 bot = telebot.TeleBot(TOKEN)
 processing_lock = threading.Lock() 
 
+# Lista de administradores que podem usar /addpoints e /removepoints
+ADMIN_IDS = [ADMIN_CHAT_ID]
+
 # --- PERSISTENT MEMORY SYSTEM FOR MANUAL REVIEW ---
 def load_reviews():
     if os.path.exists(PENDING_REVIEWS_FILE):
@@ -66,7 +69,7 @@ def send_to_target_chat(username, text):
             bot.send_message(
                 TARGET_CHAT_ID, 
                 formatted_text, 
-                parse_mode="HTML", 
+                parse_mode="HTML",
                 message_thread_id=TARGET_THREAD_ID,
                 disable_web_page_preview=True
             )
@@ -114,9 +117,28 @@ def cleanup_old_logs():
     except Exception as e:
         print(f"Error cleaning 7-day logs: {e}")
 
+def remove_log_entry(username, url):
+    """Remove a specific link from the log so the user can submit again."""
+    if not os.path.exists(LOG_FILE): return
+    try:
+        valid_rows = []
+        with open(LOG_FILE, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if len(row) < 3: continue
+                # Mantém se o username não for igual OU a URL não for igual
+                if not (row[1] == username and row[2] == url):
+                    valid_rows.append(row)
+                    
+        with open(LOG_FILE, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerows(valid_rows)
+    except Exception as e:
+        print(f"Error removing log entry: {e}")
+
 def validate_submission_rules(username, url):
     with processing_lock:
-        cleanup_old_logs()
+        cleanup_old_logs() 
         
         if not os.path.exists(LOG_FILE): return True, ""
         
@@ -168,48 +190,31 @@ def is_profile_link(url):
 
 # --- GOOGLE SHEETS FUNCTION ---
 
-def get_google_creds(scope):
-    """
-    Gets Google Sheets credentials.
-    On Railway: uses the GOOGLE_SHEETS_JSON_CONTENT environment variable.
-    Locally: uses the chave-sheets.json file.
-    """
-    json_content = os.environ.get("GOOGLE_SHEETS_JSON_CONTENT")
-    if json_content:
-        print("✅ Using Google credentials from environment variable (Railway).")
-        creds_dict = json.loads(json_content)
-        return ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    else:
-        print("✅ Using Google credentials from local file.")
-        return ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_JSON, scope)
-
 def update_sheets_points(username, score):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = get_google_creds(scope)
+        creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_JSON, scope)
         client = gspread.authorize(creds)
-        sheet = client.open(SPREADSHEET_NAME).worksheet("May")
+        sheet = client.open(SPREADSHEET_NAME).worksheet("April")
         
-        # Normalizes username by removing @, spaces and lowercasing for comparison
-        clean_username = username.strip().lstrip("@").lower()
+        formatted_username = f"@{username}" if not username.startswith("@") else username
         col_c_values = sheet.col_values(3)
         row_index = None
         
         for i, val in enumerate(col_c_values):
-            clean_val = val.strip().lstrip("@").lower()
-            if clean_val == clean_username:
-                row_index = i + 1
+            if val.strip().lower() == formatted_username.lower():
+                row_index = i + 1 
                 break
         
         if row_index:
-            coluna_pontos = 6
+            coluna_pontos = 6 
             current_points_str = sheet.cell(row_index, coluna_pontos).value
             current_points = int(current_points_str) if current_points_str else 0
             new_total = current_points + score
             sheet.update_cell(row_index, coluna_pontos, new_total)
             return True, "✅ Points updated in the Leaderboard."
         else:
-            return False, f"⚠️ Username @{username} was not found in the Official Leaderboard."
+            return False, "⚠️ Score logged locally, but username was not found in the Official Leaderboard."
             
     except Exception as e:
         print(f"Google Sheets Error: {e}")
@@ -264,17 +269,21 @@ def build_review_keyboard(msg_id_str):
     markup = InlineKeyboardMarkup()
     btn_valid = InlineKeyboardButton(f"{'✅' if state['pts_valid'] else '⬜️'} Valid Link (+1)", callback_data=f"rev_valid_{msg_id_str}")
     btn_hash = InlineKeyboardButton(f"{'✅' if state['pts_hash'] else '⬜️'} Hashtag (+1)", callback_data=f"rev_hash_{msg_id_str}")
-    btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} PAX Word (+1)", callback_data=f"rev_key_{msg_id_str}")
-    btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Code (+2)", callback_data=f"rev_code_{msg_id_str}")
+    btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} PAX Word (+2)", callback_data=f"rev_key_{msg_id_str}")
+    btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Code (+3)", callback_data=f"rev_code_{msg_id_str}")
     btn_text = InlineKeyboardButton(f"{'✍️' if state['pts_text'] else '⬜️'} Text Quality (+2)", callback_data=f"rev_text_{msg_id_str}")
     btn_image = InlineKeyboardButton(f"{'🖼' if state['pts_image'] else '⬜️'} Image Quality (+3)", callback_data=f"rev_image_{msg_id_str}")
+
     btn_confirm = InlineKeyboardButton("🚀 CONFIRM AND ADD", callback_data=f"rev_confirm_{msg_id_str}")
+    btn_invalid = InlineKeyboardButton("⚠️ INVALID LINK", callback_data=f"rev_invalid_{msg_id_str}")
+    btn_duplicate = InlineKeyboardButton("🔁 DUPLICATE POST", callback_data=f"rev_duplicate_{msg_id_str}")
     btn_reject = InlineKeyboardButton("❌ REJECT (0 pts)", callback_data=f"rev_reject_{msg_id_str}")
 
     markup.row(btn_valid, btn_hash)
     markup.row(btn_key, btn_code)
     markup.row(btn_text, btn_image)
     markup.row(btn_confirm)
+    markup.row(btn_invalid, btn_duplicate)
     markup.row(btn_reject)
     return markup
 
@@ -303,8 +312,8 @@ def handle_review_buttons(call):
         score = 0
         if state['pts_valid']: score += 1
         if state['pts_hash']: score += 1
-        if state['pts_key']: score += 1
-        if state['pts_code']: score += 2
+        if state['pts_key']: score += 2
+        if state['pts_code']: score += 3
         if state['pts_text']: score += 2
         if state['pts_image']: score += 3
 
@@ -335,13 +344,56 @@ def handle_review_buttons(call):
         user_msg = "📊 <b>Validation Report (Manual)</b>\n\n"
         if state['pts_valid']: user_msg += "• Valid link (+1)\n"
         if state['pts_hash']: user_msg += "• Hashtag #parallaxnetwork detected (+1)\n"
-        if state['pts_key']: user_msg += "• Keywords 'PAX/Parallax' detected (+1)\n"
-        if state['pts_code']: user_msg += "• Invite code detected (+2)\n"
+        if state['pts_key']: user_msg += "• Keywords 'PAX/Parallax' detected (+2)\n"
+        if state['pts_code']: user_msg += "• Invite code detected (+3)\n"
         if state['pts_text']: user_msg += "• High text quality (+2)\n"
         if state['pts_image']: user_msg += "• High image/video quality (+3)\n"
+        
         user_msg += f"\n🏆 <b>Final Score: {score} points</b>\n{sheets_message}\n🔗 <a href=\"{safe_url}\">Access Post</a>"
         
         send_to_target_chat(state['user'], user_msg)
+
+        del review_sessions[msg_id_str]
+        save_reviews()
+        safe_answer_callback(call.id)
+
+    elif action == 'invalid':
+        with processing_lock:
+            remove_log_entry(state['user'], state['url'])
+
+        try:
+            bot.edit_message_text(
+                f"⚠️ <b>INVALID LINK</b>\n👤 @{safe_user} (0 points).\n🔗 <a href=\"{safe_url}\">Access Link</a>", 
+                chat_id=call.message.chat.id, 
+                message_id=int(msg_id_str),
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
+        except Exception: pass
+            
+        reject_msg = f"⚠️ <b>Link could not be verified.</b>\nWe were unable to access or verify the content of your link. It has been removed from our system, so you are free to submit a new, functional link to replace it.\n🔗 <a href=\"{safe_url}\">Access Post</a>"
+        send_to_target_chat(state['user'], reject_msg)
+
+        del review_sessions[msg_id_str]
+        save_reviews()
+        safe_answer_callback(call.id)
+
+    elif action == 'duplicate':
+        with processing_lock:
+            remove_log_entry(state['user'], state['url'])
+
+        try:
+            bot.edit_message_text(
+                f"🔁 <b>DUPLICATE POST</b>\n👤 @{safe_user} (0 points).\n🔗 <a href=\"{safe_url}\">Access Link</a>", 
+                chat_id=call.message.chat.id, 
+                message_id=int(msg_id_str),
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
+        except Exception: pass
+            
+        reject_msg = f"🔁 <b>Duplicate Content.</b>\nThis post seems to be a duplicate or highly similar to another recent submission. It has been removed from your daily limit, please submit a different post.\n🔗 <a href=\"{safe_url}\">Access Post</a>"
+        send_to_target_chat(state['user'], reject_msg)
 
         del review_sessions[msg_id_str]
         save_reviews()
@@ -364,6 +416,43 @@ def handle_review_buttons(call):
         del review_sessions[msg_id_str]
         save_reviews()
         safe_answer_callback(call.id)
+
+# --- MANUAL POINTS COMMANDS ---
+
+@bot.message_handler(commands=['addpoints', 'removepoints'])
+def handle_manual_points(message):
+    if message.chat.id not in ADMIN_IDS:
+        return
+
+    parts = message.text.split()
+    if len(parts) != 3:
+        bot.reply_to(message, "Usage: /addpoints @username 10\nOr: /removepoints @username 10")
+        return
+
+    command = parts[0].lower()
+    username = parts[1].replace("@", "")
+    
+    try:
+        points = int(parts[2])
+    except ValueError:
+        bot.reply_to(message, "Points must be an integer.")
+        return
+
+    if command == "/removepoints":
+        points = -abs(points)
+        action_word = "removed from"
+    else:
+        points = abs(points)
+        action_word = "added to"
+
+    success, msg = update_sheets_points(username, points)
+    
+    if success:
+        bot.reply_to(message, f"✅ Successfully {action_word} @{username}: {points} points.")
+        # Opcional: Avisar o usuário no chat público
+        send_to_target_chat(username, f"🛠 <b>Admin Action:</b> {abs(points)} points have been {action_word} your account.")
+    else:
+        bot.reply_to(message, f"❌ Failed to update points for @{username}.\nReason: {msg}")
 
 # --- TELEGRAM INTERFACE ---
 
