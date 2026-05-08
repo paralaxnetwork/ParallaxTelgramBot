@@ -28,9 +28,6 @@ SPREADSHEET_NAME = "Ambassador_Rewards"
 bot = telebot.TeleBot(TOKEN)
 processing_lock = threading.Lock() 
 
-# Lista de administradores que podem usar /addpoints e /removepoints
-ADMIN_IDS = [ADMIN_CHAT_ID]
-
 # --- PERSISTENT MEMORY SYSTEM FOR MANUAL REVIEW ---
 def load_reviews():
     if os.path.exists(PENDING_REVIEWS_FILE):
@@ -117,7 +114,7 @@ def cleanup_old_logs():
         print(f"Error cleaning 7-day logs: {e}")
 
 def remove_log_entry(username, url):
-    """Remove a specific link from the log so the user can submit again."""
+    """Removes a specific link from the log so the user can submit another one."""
     if not os.path.exists(LOG_FILE): return
     try:
         valid_rows = []
@@ -125,7 +122,6 @@ def remove_log_entry(username, url):
             reader = csv.reader(f)
             for row in reader:
                 if len(row) < 3: continue
-                # Mantém se o username não for igual OU a URL não for igual
                 if not (row[1] == username and row[2] == url):
                     valid_rows.append(row)
                     
@@ -197,7 +193,7 @@ def update_sheets_points(username, score):
         sheets_credentials_json = os.environ.get("GOOGLE_SHEETS_JSON_CONTENT")
         
         if not sheets_credentials_json:
-            print("Erro: Variável GOOGLE_SHEETS_JSON_CONTENT não encontrada!")
+            print("Error: GOOGLE_SHEETS_JSON_CONTENT not found in environment!")
             return False, "⚠️ Credentials missing in Railway environment."
 
         # Converte a string JSON para um dicionário Python e autentica
@@ -205,7 +201,8 @@ def update_sheets_points(username, score):
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        sheet = client.open(SPREADSHEET_NAME).worksheet("April")
+        # Conecta exatamente na aba "May"
+        sheet = client.open(SPREADSHEET_NAME).worksheet("May")
         
         formatted_username = f"@{username}" if not username.startswith("@") else username
         col_c_values = sheet.col_values(3)
@@ -268,7 +265,7 @@ def route_to_manual_review(username, url):
         save_reviews() 
         bot.edit_message_reply_markup(ADMIN_CHAT_ID, msg.message_id, reply_markup=build_review_keyboard(msg_id_str))
     except Exception as e:
-        print(f"Error sending admin panel: {e}")
+        print(f"Error sending to admin panel: {e}")
 
 # --- ADMIN PANEL INTERFACE ---
 
@@ -431,7 +428,7 @@ def handle_review_buttons(call):
 
 @bot.message_handler(commands=['addpoints', 'removepoints'])
 def handle_manual_points(message):
-    if message.chat.id not in ADMIN_IDS:
+    if message.chat.id != ADMIN_CHAT_ID:
         return
 
     parts = message.text.split()
@@ -458,7 +455,7 @@ def handle_manual_points(message):
     success, msg = update_sheets_points(username, points)
     
     if success:
-        bot.reply_to(message, f"✅ Successfully {action_word} @{username}: {points} points.")
+        bot.reply_to(message, f"✅ Successfully {action_word} @{username}: {abs(points)} points.")
         send_to_target_chat(username, f"🛠 <b>Admin Action:</b> {abs(points)} points have been {action_word} your account.")
     else:
         bot.reply_to(message, f"❌ Failed to update points for @{username}.\nReason: {msg}")
