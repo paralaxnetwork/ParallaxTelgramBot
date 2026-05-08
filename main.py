@@ -23,7 +23,6 @@ TARGET_CHAT_ID = -1003720126614
 TARGET_THREAD_ID = 171
 
 # --- GOOGLE SHEETS CONFIGURATION ---
-GOOGLE_SHEETS_JSON = "chave-sheets.json" 
 SPREADSHEET_NAME = "Ambassador_Rewards"
 
 bot = telebot.TeleBot(TOKEN)
@@ -193,8 +192,19 @@ def is_profile_link(url):
 def update_sheets_points(username, score):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name(GOOGLE_SHEETS_JSON, scope)
+        
+        # Puxa o conteúdo do JSON da variável de ambiente do Railway
+        sheets_credentials_json = os.environ.get("GOOGLE_SHEETS_JSON_CONTENT")
+        
+        if not sheets_credentials_json:
+            print("Erro: Variável GOOGLE_SHEETS_JSON_CONTENT não encontrada!")
+            return False, "⚠️ Credentials missing in Railway environment."
+
+        # Converte a string JSON para um dicionário Python e autentica
+        creds_dict = json.loads(sheets_credentials_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
+        
         sheet = client.open(SPREADSHEET_NAME).worksheet("April")
         
         formatted_username = f"@{username}" if not username.startswith("@") else username
@@ -449,7 +459,6 @@ def handle_manual_points(message):
     
     if success:
         bot.reply_to(message, f"✅ Successfully {action_word} @{username}: {points} points.")
-        # Opcional: Avisar o usuário no chat público
         send_to_target_chat(username, f"🛠 <b>Admin Action:</b> {abs(points)} points have been {action_word} your account.")
     else:
         bot.reply_to(message, f"❌ Failed to update points for @{username}.\nReason: {msg}")
