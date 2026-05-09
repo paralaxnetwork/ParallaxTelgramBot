@@ -276,8 +276,8 @@ def build_review_keyboard(msg_id_str):
     markup = InlineKeyboardMarkup()
     btn_valid = InlineKeyboardButton(f"{'✅' if state['pts_valid'] else '⬜️'} Valid Link (+1)", callback_data=f"rev_valid_{msg_id_str}")
     btn_hash = InlineKeyboardButton(f"{'✅' if state['pts_hash'] else '⬜️'} Hashtag (+1)", callback_data=f"rev_hash_{msg_id_str}")
-    btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} PAX Word (+2)", callback_data=f"rev_key_{msg_id_str}")
-    btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Code (+3)", callback_data=f"rev_code_{msg_id_str}")
+    btn_key = InlineKeyboardButton(f"{'✅' if state['pts_key'] else '⬜️'} PAX Word (+1)", callback_data=f"rev_key_{msg_id_str}")
+    btn_code = InlineKeyboardButton(f"{'✅' if state['pts_code'] else '⬜️'} Code (+2)", callback_data=f"rev_code_{msg_id_str}")
     btn_text = InlineKeyboardButton(f"{'✍️' if state['pts_text'] else '⬜️'} Text Quality (+2)", callback_data=f"rev_text_{msg_id_str}")
     btn_image = InlineKeyboardButton(f"{'🖼' if state['pts_image'] else '⬜️'} Image Quality (+3)", callback_data=f"rev_image_{msg_id_str}")
 
