@@ -319,8 +319,8 @@ def handle_review_buttons(call):
         score = 0
         if state['pts_valid']: score += 1
         if state['pts_hash']: score += 1
-        if state['pts_key']: score += 2
-        if state['pts_code']: score += 3
+        if state['pts_key']: score += 1
+        if state['pts_code']: score += 2
         if state['pts_text']: score += 2
         if state['pts_image']: score += 3
 
