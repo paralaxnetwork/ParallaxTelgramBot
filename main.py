@@ -155,11 +155,14 @@ def validate_submission_rules(username, url):
                 log_date = log_datetime.date()
                 log_user = row[1]
                 log_url = row[2]
-                
+                log_status = row[3] if len(row) > 3 else ""
+
                 if url == log_url:
                     return False, "❌ This link has already been validated recently (within 7 days)."
                 
-                if log_user == username and log_date == today:
+                # Only count confirmed/scored entries toward the daily limit and cooldown,
+                # ignoring submissions still awaiting manual review.
+                if log_user == username and log_date == today and log_status != "PENDING_MANUAL":
                     user_today_urls.add(log_url) 
                     if last_submission_time is None or log_datetime > last_submission_time:
                         last_submission_time = log_datetime
@@ -174,14 +177,6 @@ def validate_submission_rules(username, url):
                 return False, f"⏳ Please wait {minutes_left} minutes before submitting another link to prevent spam."
                     
         return True, ""
-
-def is_profile_link(url):
-    patterns = [r'/status/', r'/p/', r'/reels?/', r'/watch', r'/shorts/', r'/posts/', r'/video/', r'share/v/', r'share/r/', r'youtu\.be/', r'/live/', r'/comments/']
-    strict_domains = ['twitter.com', 'x.com', 'youtube.com', 'instagram.com', 'facebook.com']
-    if any(domain in url for domain in strict_domains):
-        if any(re.search(p, url) for p in patterns): return False 
-        return True 
-    return False
 
 # --- GOOGLE SHEETS FUNCTION ---
 
@@ -485,14 +480,9 @@ def handle_submission(message):
         return
 
     url = raw_text
-    url_lower = url.lower()
 
-    if not url_lower.startswith("http"):
-        send_to_target_chat(username, "❌ Please provide a valid link.")
-        return
-
-    if is_profile_link(url_lower):
-        send_to_target_chat(username, "❌ Profile links are not accepted. Please send a specific post/status link.")
+    if not (url.lower().startswith("http") or url.lower().startswith("www.")):
+        send_to_target_chat(username, "❌ Please provide a valid link starting with http, https or www.")
         return
 
     try:
