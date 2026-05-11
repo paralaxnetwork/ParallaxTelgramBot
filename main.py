@@ -346,8 +346,8 @@ def handle_review_buttons(call):
         user_msg = "📊 <b>Validation Report (Manual)</b>\n\n"
         if state['pts_valid']: user_msg += "• Valid link (+1)\n"
         if state['pts_hash']: user_msg += "• Hashtag #parallaxnetwork detected (+1)\n"
-        if state['pts_key']: user_msg += "• Keywords 'PAX/Parallax' detected (+2)\n"
-        if state['pts_code']: user_msg += "• Invite code detected (+3)\n"
+        if state['pts_key']: user_msg += "• Keywords 'PAX/Parallax' detected (+1)\n"
+        if state['pts_code']: user_msg += "• Invite code detected (+2)\n"
         if state['pts_text']: user_msg += "• High text quality (+2)\n"
         if state['pts_image']: user_msg += "• High image/video quality (+3)\n"
         
