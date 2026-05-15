@@ -5,7 +5,7 @@ import json
 import gspread
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from oauth2client.service_account import ServiceAccountCredentials
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -27,6 +27,11 @@ SPREADSHEET_NAME = "Ambassador_Rewards"
 
 bot = telebot.TeleBot(TOKEN)
 processing_lock = threading.Lock() 
+
+# --- HELPER DE FUSO HORÁRIO (GARANTE MEIA NOITE UTC) ---
+def get_utc_now():
+    """Retorna o datetime atual estritamente em UTC, compatível com o formato local."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 # --- PERSISTENT MEMORY SYSTEM FOR MANUAL REVIEW ---
 def load_reviews():
@@ -95,7 +100,7 @@ def cleanup_old_logs():
     if not os.path.exists(LOG_FILE): return
     try:
         valid_rows = []
-        now = datetime.now()
+        now = get_utc_now()
         with open(LOG_FILE, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
             for row in reader:
@@ -137,11 +142,10 @@ def validate_submission_rules(username, url):
         
         if not os.path.exists(LOG_FILE): return True, ""
         
-        today = datetime.now().date()
-        now = datetime.now()
+        now = get_utc_now()
+        today = now.date()  # Usa estritamente a data UTC
         
         user_today_urls = set()
-        last_submission_time = None
         
         with open(LOG_FILE, 'r', encoding='utf-8') as f:
             reader = csv.reader(f)
@@ -155,26 +159,17 @@ def validate_submission_rules(username, url):
                 log_date = log_datetime.date()
                 log_user = row[1]
                 log_url = row[2]
-                log_status = row[3] if len(row) > 3 else ""
 
                 if url == log_url:
                     return False, "❌ This link has already been validated recently (within 7 days)."
                 
-                # Only count confirmed/scored entries toward the daily limit and cooldown,
-                # ignoring submissions still awaiting manual review.
-                if log_user == username and log_date == today and log_status != "PENDING_MANUAL":
+                # Conta links baseados APENAS se o usuario enviou na data de "hoje" (UTC)
+                # Inclui status: "PENDING_MANUAL" (já que o administrador ainda não marcou como Duplicate ou Invalid)
+                if log_user == username and log_date == today:
                     user_today_urls.add(log_url) 
-                    if last_submission_time is None or log_datetime > last_submission_time:
-                        last_submission_time = log_datetime
                 
         if len(user_today_urls) >= 2:
-            return False, "❌ You have already reached your limit of 2 scored posts for today."
-        
-        if last_submission_time:
-            time_diff_seconds = (now - last_submission_time).total_seconds()
-            if time_diff_seconds < 3600: 
-                minutes_left = int((3600 - time_diff_seconds) / 60)
-                return False, f"⏳ Please wait {minutes_left} minutes before submitting another link to prevent spam."
+            return False, "❌ You have already reached your limit of 2 posts for today (00:00 UTC)."
                     
         return True, ""
 
@@ -184,19 +179,16 @@ def update_sheets_points(username, score):
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
-        # Puxa o conteúdo do JSON da variável de ambiente do Railway
         sheets_credentials_json = os.environ.get("GOOGLE_SHEETS_JSON_CONTENT")
         
         if not sheets_credentials_json:
             print("Error: GOOGLE_SHEETS_JSON_CONTENT not found in environment!")
             return False, "⚠️ Credentials missing in Railway environment."
 
-        # Converte a string JSON para um dicionário Python e autentica
         creds_dict = json.loads(sheets_credentials_json)
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
         
-        # Conecta exatamente na aba "May"
         sheet = client.open(SPREADSHEET_NAME).worksheet("May")
         
         formatted_username = f"@{username}" if not username.startswith("@") else username
@@ -227,12 +219,13 @@ def update_sheets_points(username, score):
 def route_to_manual_review(username, url):
     """Forwards ANY AND ALL LINKS to structured manual review."""
     try:
+        now_str = get_utc_now().strftime('%Y-%m-%d %H:%M:%S')
         with processing_lock:
             with open(MANUAL_REVIEW_FILE, 'a', newline='', encoding='utf-8') as f:
-                csv.writer(f).writerow([f"@{username}", url, datetime.now().strftime('%Y-%m-%d %H:%M:%S')])
+                csv.writer(f).writerow([f"@{username}", url, now_str])
             
             with open(LOG_FILE, 'a', newline='', encoding='utf-8') as f:
-                csv.writer(f).writerow([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), username, url, "PENDING_MANUAL"])
+                csv.writer(f).writerow([now_str, username, url, "PENDING_MANUAL"])
     except PermissionError:
         send_to_target_chat(username, "⚠️ The system is currently updating (File locked). Please try submitting again in a few moments!")
         return
@@ -324,9 +317,10 @@ def handle_review_buttons(call):
             return
 
         try:
+            now_str = get_utc_now().strftime('%Y-%m-%d %H:%M:%S')
             with processing_lock:
                 with open(LOG_FILE, 'a', newline='', encoding='utf-8') as f:
-                    csv.writer(f).writerow([datetime.now().strftime('%Y-%m-%d %H:%M:%S'), state['user'], state['url'], score])
+                    csv.writer(f).writerow([now_str, state['user'], state['url'], score])
         except PermissionError:
             safe_answer_callback(call.id, "Error: Close the CSV in Excel before confirming!", show_alert=True)
             return
@@ -361,6 +355,7 @@ def handle_review_buttons(call):
 
     elif action == 'invalid':
         with processing_lock:
+            # Ao remover totalmente o link ("Duplicate/Invalid"), recuperamos o limite de 2 links do usuario
             remove_log_entry(state['user'], state['url'])
 
         try:
@@ -487,8 +482,9 @@ def handle_submission(message):
 
     try:
         allowed, reason = validate_submission_rules(username, url)
-    except PermissionError:
-        send_to_target_chat(username, "⚠️ The database is open on the Admin's computer. Please try again in 1 minute.")
+    except Exception as e:
+        print(f"Validation Error: {e}")
+        send_to_target_chat(username, "⚠️ The database is temporarily busy. Please try again in 1 minute.")
         return
 
     if not allowed:
@@ -502,7 +498,7 @@ if __name__ == "__main__":
         with open(MANUAL_REVIEW_FILE, 'w', newline='', encoding='utf-8') as f:
             csv.writer(f).writerow(['Username', 'Link', 'Submission_Date'])
             
-    print(f"🚀 Parallax Auditor System Online (100% Manual Review Enabled, Secure HTML Parse)...")
+    print(f"🚀 Parallax Auditor System Online (UTC Sync ON)...")
     
     while True:
         try:
